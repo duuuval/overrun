@@ -70,6 +70,16 @@
     <input type="range" id="s_spawn" min="0.08" max="1.2" step="0.02"></div>
   <div class="row"><label>Enemy HP × <span class="val" id="v_ehp"></span></label>
     <input type="range" id="s_ehp" min="0.5" max="4" step="0.25"></div>
+  <div class="row">
+    <label>Enemy Type <span class="val" id="v_etype">All</span></label>
+    <select id="s_etype" style="width:100%; background:rgba(8,10,14,.82); color:var(--accent); border:1px solid #2a3346; border-radius:6px; padding:4px; font-family:var(--mono); margin-top:4px; cursor:pointer;">
+      <option value="all">All (Normal)</option>
+      <option value="swarm">Swarm 🐛</option>
+      <option value="grunt">Grunt 👾</option>
+      <option value="rush">Rush 🦇</option>
+      <option value="tank">Tank 👹</option>
+    </select>
+  </div>
   <div class="row"><label>Zoom <span class="val" id="v_zoom"></span></label>
     <input type="range" id="s_zoom" min="0.45" max="1" step="0.05"></div>
   <p class="note">Each weapon's range / rate / behavior is baked per-type for now — switch with the button at the bottom (or keys 1–5). Per-weapon tuning comes once you lock the lineup.</p>
@@ -103,6 +113,7 @@ const T = {
   spawnInterval: 0.45,   // sec between spawns (base; ramps DOWN over time)
   hpScale: 1,            // multiplies the whole enemy HP spectrum (also rises with time)
   zoom: 0.7,             // camera zoom: <1 = zoomed out, more world visible
+  enemyType: 'all',      // tracks selected enemy type for testing
 };
 // Fixed-ish constants (rarely touched while tuning movement)
 const PLAYER_R = 18, PLAYER_MAX_HP = 100, CONTACT_DMG = 9, CONTACT_CD = 0.5;
@@ -116,6 +127,12 @@ const ENEMY_TYPES = [
   { key:'tank',  hp:12, speedMul:0.55, sizeMul:1.6,  emoji:'👹', minTime:40, weight:1 },
 ];
 function pickEnemyType(){
+  // If testing a specific enemy, bypass the random pool
+  if (T.enemyType !== 'all') {
+    return ENEMY_TYPES.find(t => t.key === T.enemyType) || ENEMY_TYPES[0];
+  }
+
+  // Normal gameplay behavior
   const pool = ENEMY_TYPES.filter(t => time >= t.minTime);
   let total=0; for(const t of pool) total+=t.weight;
   let r=Math.random()*total;
@@ -528,6 +545,15 @@ bind('espeed','enemySpeed', x=>x.toFixed(0));
 bind('spawn','spawnInterval', x=>x.toFixed(2));
 bind('ehp','hpScale', x=>x.toFixed(2));
 bind('zoom','zoom', x=>x.toFixed(2));
+
+/* ---------- enemy toggle wiring ---------- */
+const eTypeSelect = document.getElementById('s_etype');
+const vEtype = document.getElementById('v_etype');
+eTypeSelect.addEventListener('change', (e) => {
+  T.enemyType = e.target.value;
+  // Update the label text visually based on selection
+  vEtype.textContent = e.target.options[e.target.selectedIndex].text.split(' ')[0]; 
+});
 
 /* ---------- weapon switching ---------- */
 const wpnBtn = document.getElementById('wpnbtn');
