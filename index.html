@@ -142,7 +142,7 @@ const WEAPONS = [
   { name:'Rail',    behavior:'pierce', range:300, rate:1.0, projSpeed:1000, dmg:5, pierce:99, color:'#5ad1ff' },
   { name:'Orbit',   behavior:'orbit',  orbCount:2, orbRadius:105, orbSpeed:6.0, dmg:3, color:'#9b7dff' },
   { name:'Mortar',  behavior:'lob',    range:250, rate:0.85, projSpeed:270, dmg:4, blast:70, color:'#ff5a6e' },
-  { name:'Bolt',    behavior:'chain',  range:300, rate:1.4, dmg:3, jumps:5, jumpRange:120, color:'#7fd0ff' },
+  { name:'Bolt',    behavior:'chain',  range:300, rate:1.4, dmg:3, jumps:5, jumpRange:120, falloff:0.6, color:'#7fd0ff' },
 ];
 let weaponIdx = 0;
 function wpn(){ return WEAPONS[weaponIdx]; }
@@ -348,7 +348,7 @@ function fireWeapon(w, target){
     let current = target;
     for(let j=0; j<w.jumps && current; j++){
       visited.add(current);
-      current.hp -= w.dmg; current.hit = 0.12;
+      current.hp -= w.dmg * Math.pow(w.falloff ?? 1, j); current.hit = 0.12;
       pts.push({x:current.x, y:current.y});
       let next=null, best=w.jumpRange*w.jumpRange;
       for(const e of enemies){
@@ -519,7 +519,7 @@ function drawHUD(){
   ctx.fillText(`${time.toFixed(1)}s   ${kills} kills`, bx, xy+xh+19);
   // build tag (so we can confirm the loaded version)
   ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font='10px '+ff; ctx.textAlign='left';
-  ctx.fillText('build 8', 12, H-12);
+  ctx.fillText('build 10', 12, H-12);
 }
 function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x,y,w,h,r) :
   (ctx.rect(x,y,w,h)); }
