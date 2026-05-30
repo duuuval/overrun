@@ -138,11 +138,11 @@ function pickEnemyType(){
 /* ---------- weapons: 5 distinct behaviors (this is the lineup to feel out) ---------- */
 const WEAPONS = [
   { name:'Blaster', behavior:'single', range:260, rate:2.4, projSpeed:560, dmg:1, color:'#ffe45a' },
-  { name:'Scatter', behavior:'spread', range:120, rate:1.0, projSpeed:480, dmg:6, pellets:6, spread:1.1, color:'#ff9a3c' },
+  { name:'Scatter', behavior:'spread', range:120, rate:0.8, projSpeed:480, dmg:6, pellets:6, spread:1.1, color:'#ff9a3c' },
   { name:'Rail',    behavior:'pierce', range:300, rate:1.0, projSpeed:1000, dmg:5, pierce:99, color:'#5ad1ff' },
   { name:'Orbit',   behavior:'orbit',  orbCount:2, orbRadius:105, orbSpeed:6.0, dmg:3, color:'#9b7dff' },
   { name:'Mortar',  behavior:'lob',    range:250, rate:0.85, projSpeed:270, dmg:4, blast:70, color:'#ff5a6e' },
-  { name:'Bolt',    behavior:'chain',  range:300, rate:1.4, dmg:3, jumps:5, jumpRange:120, falloff:0.6, color:'#7fd0ff' },
+  { name:'Bolt',    behavior:'chain',  range:300, rate:1.15, dmg:3, jumps:5, jumpRange:120, falloff:0.6, color:'#7fd0ff' },
 ];
 let weaponIdx = 0;
 function wpn(){ return WEAPONS[weaponIdx]; }
@@ -519,7 +519,7 @@ function drawHUD(){
   ctx.fillText(`${time.toFixed(1)}s   ${kills} kills`, bx, xy+xh+19);
   // build tag (so we can confirm the loaded version)
   ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font='10px '+ff; ctx.textAlign='left';
-  ctx.fillText('build 10', 12, H-12);
+  ctx.fillText('build 11', 12, H-12);
 }
 function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x,y,w,h,r) :
   (ctx.rect(x,y,w,h)); }
