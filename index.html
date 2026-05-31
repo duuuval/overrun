@@ -117,7 +117,19 @@ const T = {
 const PLAYER_R = 18, PLAYER_MAX_HP = 100, CONTACT_DMG = 9, CONTACT_CD = 0.5;
 const ENEMY_R = 16, PROJ_R = 6, PROJ_LIFE = 1.3;
 const MAX_ENEMIES = 380, KILLS_PER_LEVEL = 15, FIRE_MULT_MIN = 0.5;
-const PLAYER_EMOJI = '🦊';
+const PLAYER_EMOJI = '🦊';   // fallback: shown until the sprite loads, or if it fails
+/* ---------- hand-drawn hero sprite ----------
+   Relative path (no leading slash) so it also works when the game is served from a
+   subpath, e.g. GitHub Pages project sites (username.github.io/repo/). */
+const PLAYER_SPRITE_SRC   = 'heros/tank.png';
+const PLAYER_SPRITE_SCALE = 1.4;    // visual size relative to the hitbox — tune by eye
+const PLAYER_SMOOTH       = true;   // true = smooth (detailed art); false = crisp (pixel art)
+const FACE_MOVEMENT       = false;  // true = flip sprite to face left/right when moving (set if your art faces a side)
+const playerSprite = new Image();
+let playerSpriteReady = false, playerFacing = 1;
+playerSprite.onload  = () => { playerSpriteReady = true; };
+playerSprite.onerror = () => { console.warn('Player sprite failed to load:', PLAYER_SPRITE_SRC, '— using emoji fallback. Check the path / that the file is committed.'); };
+playerSprite.src = PLAYER_SPRITE_SRC;
 const ENEMY_TYPES = [
   { key:'swarm', hp:1,  speedMul:1.15, sizeMul:0.75, emoji:'🐛', minTime:0,  weight:5 },
   { key:'grunt', hp:3,  speedMul:1.0,  sizeMul:1.0,  emoji:'👾', minTime:0,  weight:4 },
@@ -234,6 +246,7 @@ function update(dt){
 
   // move player
   const dir = inputDir();
+  if(FACE_MOVEMENT && Math.abs(dir.x) > 0.01) playerFacing = dir.x < 0 ? -1 : 1;
   player.x += dir.x * T.playerSpeed * dt;
   player.y += dir.y * T.playerSpeed * dt;
 
@@ -411,6 +424,21 @@ function emoji(ch, sx, sy, size){
   ctx.fillText(ch, sx, sy);
 }
 
+function drawPlayer(sx, sy, Z){
+  if(!playerSpriteReady){ emoji(PLAYER_EMOJI, sx, sy, PLAYER_R*2.1*Z); return; }
+  // fit the sprite's longest side to the hitbox, preserving aspect ratio
+  const target = PLAYER_R * 2 * Z * PLAYER_SPRITE_SCALE;
+  const iw = playerSprite.naturalWidth || 1, ih = playerSprite.naturalHeight || 1;
+  const s = target / Math.max(iw, ih);
+  const w = iw * s, h = ih * s;
+  ctx.save();
+  ctx.translate(sx, sy);
+  if(FACE_MOVEMENT && playerFacing < 0) ctx.scale(-1, 1);
+  ctx.imageSmoothingEnabled = PLAYER_SMOOTH;
+  ctx.drawImage(playerSprite, -w/2, -h/2, w, h);
+  ctx.restore();
+}
+
 function render(){
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle = '#0e1014'; ctx.fillRect(0,0,W,H);
@@ -467,7 +495,7 @@ function render(){
     emoji(e.emoji, sx, sy, e.r*2*Z*(e.hit>0?1.3:1));
   }
   // player
-  emoji(PLAYER_EMOJI, W/2, H/2, PLAYER_R*2.1*Z);
+  drawPlayer(W/2, H/2, Z);
 
   // hit flash (red vignette)
   if(hitFlash>0){
