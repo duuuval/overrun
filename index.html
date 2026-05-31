@@ -70,6 +70,9 @@
 
 <div id="panel" class="hidden">
   <h2>Feel · live tune</h2>
+  <div class="row"><label>Hero render</label>
+    <button id="b_heromode" style="width:100%;margin-top:2px;border:1px solid #2a3346;background:rgba(20,24,34,.85);color:var(--ink);font-family:var(--mono);font-size:12px;letter-spacing:.5px;padding:9px 10px;border-radius:8px;cursor:pointer">Fused (tank.png)</button>
+    <p class="note">Fused = tank.png with the gun baked in. Detached = tank2.png body (flips L/R) + scatter.png gun that rotates to aim.</p></div>
   <div class="row"><label>Move speed <span class="val" id="v_speed"></span></label>
     <input type="range" id="s_speed" min="80" max="400" step="5"></div>
   <div class="row"><label>Enemy speed <span class="val" id="v_espeed"></span></label>
@@ -122,14 +125,35 @@ const PLAYER_EMOJI = '🦊';   // fallback: shown until the sprite loads, or if 
    Relative path (no leading slash) so it also works when the game is served from a
    subpath, e.g. GitHub Pages project sites (username.github.io/repo/). */
 const PLAYER_SPRITE_SRC   = 'heros/tank.png';
-const PLAYER_SPRITE_SCALE = 5;    // visual size relative to the hitbox — tune by eye
+const PLAYER_SPRITE_SCALE = 1.4;    // visual size relative to the hitbox — tune by eye
 const PLAYER_SMOOTH       = true;   // true = smooth (detailed art); false = crisp (pixel art)
-const FACE_MOVEMENT       = true;  // true = flip sprite to face left/right when moving (set if your art faces a side)
+const FACE_MOVEMENT       = false;  // FUSED MODE ONLY: flip sprite to face movement direction
 const playerSprite = new Image();
 let playerSpriteReady = false, playerFacing = 1;
 playerSprite.onload  = () => { playerSpriteReady = true; };
 playerSprite.onerror = () => { console.warn('Player sprite failed to load:', PLAYER_SPRITE_SRC, '— using emoji fallback. Check the path / that the file is committed.'); };
 playerSprite.src = PLAYER_SPRITE_SRC;
+
+/* ---------- DETACHED MODE: gun-less body + free-floating, rotating weapon ----------
+   Toggle live in the ⚙ panel. The body only flips L/R; the weapon is NOT held — it
+   floats and rotates a full 360° to the target, so no arm geometry ever breaks. */
+let HERO_MODE = 'fused';                 // 'fused' (tank.png) | 'detached' (tank2 + scatter)
+const HERO_BODY_SRC = 'heros/tank2.png'; // gun-less turtle, drawn facing RIGHT
+const WEAPON_SRC    = 'weapons/scatter.png'; // gun sprite, barrel pointing RIGHT
+// --- detached tuning (world units unless noted) ---
+const WEAPON_LEN         = 34;   // gun length on screen-ish (longest side), pre-zoom
+const WEAPON_PIVOT_X     = 0.30; // where the gun pivots, as a fraction from its LEFT/grip end
+const WEAPON_MOUNT_OX    = 0;    // mount point offset from body center, x
+const WEAPON_MOUNT_OY    = -4;   // mount point offset from body center, y (negative = up toward chest)
+const WEAPON_MUZZLE_DIST = 22;   // how far out the muzzle (bullet origin) sits along the aim line
+const heroBody = new Image(); let heroBodyReady = false;
+heroBody.onload  = () => { heroBodyReady = true; };
+heroBody.onerror = () => { console.warn('Hero body failed to load:', HERO_BODY_SRC); };
+heroBody.src = HERO_BODY_SRC;
+const weaponSprite = new Image(); let weaponReady = false;
+weaponSprite.onload  = () => { weaponReady = true; };
+weaponSprite.onerror = () => { console.warn('Weapon sprite failed to load:', WEAPON_SRC); };
+weaponSprite.src = WEAPON_SRC;
 const ENEMY_TYPES = [
   { key:'swarm', hp:1,  speedMul:1.15, sizeMul:0.75, emoji:'🐛', minTime:0,  weight:5 },
   { key:'grunt', hp:3,  speedMul:1.0,  sizeMul:1.0,  emoji:'👾', minTime:0,  weight:4 },
@@ -176,13 +200,14 @@ resize();
 /* ---------- game state ---------- */
 let state = 'start'; // start | playing | dead
 let player, enemies, projectiles, explosions, bolts, time, kills, level, fireMult, hitFlash,
-    fireTimer, spawnTimer, contactTimer, orbAngle;
+    fireTimer, spawnTimer, contactTimer, orbAngle, aimAngle, muzzleX, muzzleY;
 
 function reset(){
   player = { x:0, y:0, hp:PLAYER_MAX_HP };
   enemies = []; projectiles = []; explosions = []; bolts = [];
   time = 0; kills = 0; level = 1; fireMult = 1; hitFlash = 0;
   fireTimer = 0; spawnTimer = 0; contactTimer = 0; orbAngle = 0;
+  aimAngle = 0; muzzleX = player.x; muzzleY = player.y;
 }
 
 /* ---------- input: floating joystick (pointer = touch + mouse) + keyboard ---------- */
@@ -246,7 +271,6 @@ function update(dt){
 
   // move player
   const dir = inputDir();
-  if(FACE_MOVEMENT && Math.abs(dir.x) > 0.01) playerFacing = dir.x < 0 ? -1 : 1;
   player.x += dir.x * T.playerSpeed * dt;
   player.y += dir.y * T.playerSpeed * dt;
 
@@ -265,22 +289,38 @@ function update(dt){
     e.y += (dy/d) * espd * e.speedMul * dt;
   }
 
+  // ----- aim: nearest enemy drives the rotating weapon AND the fire direction -----
+  let aimNearest=null, aimBest=Infinity;
+  for(const e of enemies){
+    const d2 = (e.x-player.x)**2 + (e.y-player.y)**2;
+    if(d2 < aimBest){ aimBest=d2; aimNearest=e; }
+  }
+  if(aimNearest) aimAngle = Math.atan2(aimNearest.y-player.y, aimNearest.x-player.x);
+
+  // body facing: detached faces where it shoots; fused keeps the FACE_MOVEMENT rule
+  if(HERO_MODE === 'detached'){
+    if(aimNearest && Math.abs(Math.cos(aimAngle)) > 0.15) playerFacing = Math.cos(aimAngle) < 0 ? -1 : 1;
+  } else if(FACE_MOVEMENT && Math.abs(dir.x) > 0.01){
+    playerFacing = dir.x < 0 ? -1 : 1;
+  }
+
+  // bullet origin: muzzle of the floating gun in detached mode, body center otherwise
+  if(HERO_MODE === 'detached'){
+    muzzleX = player.x + WEAPON_MOUNT_OX + Math.cos(aimAngle)*WEAPON_MUZZLE_DIST;
+    muzzleY = player.y + WEAPON_MOUNT_OY + Math.sin(aimAngle)*WEAPON_MUZZLE_DIST;
+  } else {
+    muzzleX = player.x; muzzleY = player.y;
+  }
+
   // ----- weapon firing (behavior depends on current weapon) -----
   const w = wpn();
   if(w.behavior === 'orbit'){
     updateOrbit(dt, w);
   } else {
     fireTimer -= dt;
-    if(fireTimer <= 0 && enemies.length){
-      let nearest=null, best=Infinity;
-      for(const e of enemies){
-        const d2 = (e.x-player.x)**2 + (e.y-player.y)**2;
-        if(d2 < best){ best=d2; nearest=e; }
-      }
-      if(nearest && best <= w.range*w.range){
-        fireWeapon(w, nearest);
-        fireTimer = 1 / (w.rate / fireMult); // fireMult<1 => faster
-      }
+    if(fireTimer <= 0 && aimNearest && aimBest <= w.range*w.range){
+      fireWeapon(w, aimNearest);
+      fireTimer = 1 / (w.rate / fireMult); // fireMult<1 => faster
     }
   }
 
@@ -339,11 +379,11 @@ function killCredit(){
   if(kills >= level*KILLS_PER_LEVEL) levelUp();
 }
 function spawnBolt(ang, w, pierce){
-  projectiles.push({ x:player.x, y:player.y, vx:Math.cos(ang)*w.projSpeed, vy:Math.sin(ang)*w.projSpeed,
+  projectiles.push({ x:muzzleX, y:muzzleY, vx:Math.cos(ang)*w.projSpeed, vy:Math.sin(ang)*w.projSpeed,
     life:PROJ_LIFE, color:w.color, dmg:w.dmg, pierce:pierce||0, lob:false });
 }
 function fireWeapon(w, target){
-  const ang = Math.atan2(target.y-player.y, target.x-player.x);
+  const ang = Math.atan2(target.y-muzzleY, target.x-muzzleX);
   if(w.behavior==='single'){
     spawnBolt(ang, w, 0);
   } else if(w.behavior==='spread'){
@@ -352,7 +392,7 @@ function fireWeapon(w, target){
   } else if(w.behavior==='pierce'){
     spawnBolt(ang, w, w.pierce);
   } else if(w.behavior==='lob'){
-    projectiles.push({ x:player.x, y:player.y, vx:Math.cos(ang)*w.projSpeed, vy:Math.sin(ang)*w.projSpeed,
+    projectiles.push({ x:muzzleX, y:muzzleY, vx:Math.cos(ang)*w.projSpeed, vy:Math.sin(ang)*w.projSpeed,
       life:2.0, color:w.color, dmg:w.dmg, pierce:0, lob:true, tx:target.x, ty:target.y, blast:w.blast });
   } else if(w.behavior==='chain'){
     // jump from the target to the nearest unvisited enemy, repeatedly — a zigzag, not a line
@@ -424,19 +464,48 @@ function emoji(ch, sx, sy, size){
   ctx.fillText(ch, sx, sy);
 }
 
-function drawPlayer(sx, sy, Z){
-  if(!playerSpriteReady){ emoji(PLAYER_EMOJI, sx, sy, PLAYER_R*2.1*Z); return; }
+function drawSprite(img, sx, sy, Z, flip){
   // fit the sprite's longest side to the hitbox, preserving aspect ratio
   const target = PLAYER_R * 2 * Z * PLAYER_SPRITE_SCALE;
-  const iw = playerSprite.naturalWidth || 1, ih = playerSprite.naturalHeight || 1;
+  const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
   const s = target / Math.max(iw, ih);
   const w = iw * s, h = ih * s;
   ctx.save();
   ctx.translate(sx, sy);
-  if(FACE_MOVEMENT && playerFacing < 0) ctx.scale(-1, 1);
+  if(flip) ctx.scale(-1, 1);
   ctx.imageSmoothingEnabled = PLAYER_SMOOTH;
-  ctx.drawImage(playerSprite, -w/2, -h/2, w, h);
+  ctx.drawImage(img, -w/2, -h/2, w, h);
   ctx.restore();
+}
+
+function drawWeapon(sx, sy, Z){
+  if(!weaponReady) return;
+  const mx = sx + WEAPON_MOUNT_OX*Z, my = sy + WEAPON_MOUNT_OY*Z;
+  const targetLen = WEAPON_LEN * Z;
+  const iw = weaponSprite.naturalWidth || 1, ih = weaponSprite.naturalHeight || 1;
+  const s = targetLen / Math.max(iw, ih);
+  const w = iw * s, h = ih * s;
+  ctx.save();
+  ctx.translate(mx, my);
+  ctx.rotate(aimAngle);
+  // aiming into the left hemisphere would render the gun upside-down — mirror it vertically
+  if(Math.cos(aimAngle) < 0) ctx.scale(1, -1);
+  ctx.imageSmoothingEnabled = PLAYER_SMOOTH;
+  // pivot at WEAPON_PIVOT_X from the grip end, vertically centered; barrel extends to the right
+  ctx.drawImage(weaponSprite, -WEAPON_PIVOT_X*w, -h/2, w, h);
+  ctx.restore();
+}
+
+function drawPlayer(sx, sy, Z){
+  if(HERO_MODE === 'detached'){
+    if(heroBodyReady) drawSprite(heroBody, sx, sy, Z, playerFacing < 0);
+    else emoji(PLAYER_EMOJI, sx, sy, PLAYER_R*2.1*Z);
+    drawWeapon(sx, sy, Z); // floating gun, drawn on top of the body
+    return;
+  }
+  // fused mode (single tank.png with the gun baked in)
+  if(playerSpriteReady) drawSprite(playerSprite, sx, sy, Z, FACE_MOVEMENT && playerFacing < 0);
+  else emoji(PLAYER_EMOJI, sx, sy, PLAYER_R*2.1*Z);
 }
 
 function render(){
@@ -581,6 +650,15 @@ reset();
 const panel=document.getElementById('panel');
 document.getElementById('gear').onclick = ()=> panel.classList.toggle('hidden');
 document.getElementById('restart').onclick = ()=> startGame();
+
+/* hero render mode toggle (fused vs detached) */
+const heroModeBtn = document.getElementById('b_heromode');
+function refreshHeroMode(){
+  heroModeBtn.textContent = HERO_MODE==='detached' ? 'Detached (tank2 + scatter)' : 'Fused (tank.png)';
+}
+heroModeBtn.onclick = ()=>{ HERO_MODE = (HERO_MODE==='detached') ? 'fused' : 'detached'; refreshHeroMode(); };
+refreshHeroMode();
+
 document.getElementById('fs').onclick = ()=>{
   try{
     const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
