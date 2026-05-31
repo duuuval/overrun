@@ -73,6 +73,12 @@
   <div class="row"><label>Hero render</label>
     <button id="b_heromode" style="width:100%;margin-top:2px;border:1px solid #2a3346;background:rgba(20,24,34,.85);color:var(--ink);font-family:var(--mono);font-size:12px;letter-spacing:.5px;padding:9px 10px;border-radius:8px;cursor:pointer">Fused (tank.png)</button>
     <p class="note">Fused = tank.png with the gun baked in. Detached = tank2.png body (flips L/R) + scatter.png gun that rotates to aim.</p></div>
+  <div class="row"><label>Master size <span class="val" id="v_master"></span></label>
+    <input type="range" id="s_master" min="0.5" max="3" step="0.05"></div>
+  <div class="row"><label>Hero size <span class="val" id="v_hero"></span></label>
+    <input type="range" id="s_hero" min="0.5" max="5" step="0.05"></div>
+  <div class="row"><label>Weapon size <span class="val" id="v_weapon"></span></label>
+    <input type="range" id="s_weapon" min="0.2" max="4" step="0.05"></div>
   <div class="row"><label>Move speed <span class="val" id="v_speed"></span></label>
     <input type="range" id="s_speed" min="80" max="400" step="5"></div>
   <div class="row"><label>Enemy speed <span class="val" id="v_espeed"></span></label>
@@ -125,7 +131,8 @@ const PLAYER_EMOJI = '🦊';   // fallback: shown until the sprite loads, or if 
    Relative path (no leading slash) so it also works when the game is served from a
    subpath, e.g. GitHub Pages project sites (username.github.io/repo/). */
 const PLAYER_SPRITE_SRC   = 'heros/tank.png';
-const PLAYER_SPRITE_SCALE = 3.5;    // ◀◀ MASTER SIZE — scales the body in BOTH modes (and the detached gun, see below)
+// Live size dials — adjustable in the ⚙ panel. master scales the whole rig; hero = body; weapon = gun.
+const SZ = { master: 1.0, hero: 2.5, weapon: 1.4 };
 const PLAYER_SMOOTH       = true;   // true = smooth (detailed art); false = crisp (pixel art)
 const FACE_MOVEMENT       = false;  // FUSED MODE ONLY: flip sprite to face movement direction
 const playerSprite = new Image();
@@ -137,22 +144,21 @@ playerSprite.src = PLAYER_SPRITE_SRC;
 /* ---------- DETACHED MODE: gun-less body + free-floating, rotating weapon ----------
    Toggle live in the ⚙ panel. The body only flips L/R; the weapon is NOT held — it
    floats and rotates a full 360° to the target, so no arm geometry ever breaks.
-   Everything below is RELATIVE to the body, so PLAYER_SPRITE_SCALE alone resizes the whole rig. */
+   Everything below is RELATIVE to the body, so the size dials in SZ resize the whole rig together. */
 let HERO_MODE = 'fused';                 // 'fused' (tank.png) | 'detached' (tank2 + scatter)
 const HERO_BODY_SRC = 'heros/tank2.png'; // gun-less turtle, drawn facing RIGHT
 const WEAPON_SRC    = 'weapons/scatter.png'; // gun sprite, barrel pointing RIGHT
-const WEAPON_SCALE       = 0.75; // gun length as a fraction of the body's longest side
 const WEAPON_PIVOT_X     = 0.30; // where the gun pivots, as a fraction from its LEFT/grip end
 const WEAPON_MOUNT_OX    = 0.0;  // mount offset as a fraction of body half-size, x
 const WEAPON_MOUNT_OY    = -0.15;// mount offset as a fraction of body half-size, y (negative = up toward chest)
 const WEAPON_MUZZLE_DIST = 0.60; // muzzle (bullet origin) distance along the aim line, as a fraction of body half-size
-// derived world-unit sizes (recomputed from the master scale above) — don't edit these directly
-const BODY_LEN  = PLAYER_R * 2 * PLAYER_SPRITE_SCALE;
-const BODY_HALF = BODY_LEN / 2;
-const WPN_LEN_W = WEAPON_SCALE * BODY_LEN;
-const WPN_OX_W  = WEAPON_MOUNT_OX  * BODY_HALF;
-const WPN_OY_W  = WEAPON_MOUNT_OY  * BODY_HALF;
-const WPN_MUZ_W = WEAPON_MUZZLE_DIST * BODY_HALF;
+// derived world sizes — recomputed live from the SZ dials, so the sliders take effect instantly
+function bodyLenW(){ return PLAYER_R * 2 * SZ.master * SZ.hero; }   // body longest side (world units)
+function wpnLenW(){  return PLAYER_R * 2 * SZ.master * SZ.weapon; } // gun longest side (world units)
+function bodyHalfW(){ return bodyLenW() / 2; }
+function wpnOX_W(){ return WEAPON_MOUNT_OX    * bodyHalfW(); }
+function wpnOY_W(){ return WEAPON_MOUNT_OY    * bodyHalfW(); }
+function wpnMuz_W(){ return WEAPON_MUZZLE_DIST * bodyHalfW(); }
 const heroBody = new Image(); let heroBodyReady = false;
 heroBody.onload  = () => { heroBodyReady = true; };
 heroBody.onerror = () => { console.warn('Hero body failed to load:', HERO_BODY_SRC); };
@@ -297,35 +303,45 @@ function update(dt){
   }
 
   // ----- aim: nearest enemy drives the rotating weapon AND the fire direction -----
+  // ----- aim & facing -----
   let aimNearest=null, aimBest=Infinity;
   for(const e of enemies){
     const d2 = (e.x-player.x)**2 + (e.y-player.y)**2;
     if(d2 < aimBest){ aimBest=d2; aimNearest=e; }
   }
-  if(aimNearest) aimAngle = Math.atan2(aimNearest.y-player.y, aimNearest.x-player.x);
+  const w = wpn();
+  const engageRange = w.range || w.orbRadius || 300;
+  const engaging = !!aimNearest && aimBest <= engageRange*engageRange;
 
-  // body facing: detached faces where it shoots; fused keeps the FACE_MOVEMENT rule
   if(HERO_MODE === 'detached'){
-    if(aimNearest && Math.abs(Math.cos(aimAngle)) > 0.15) playerFacing = Math.cos(aimAngle) < 0 ? -1 : 1;
-  } else if(FACE_MOVEMENT && Math.abs(dir.x) > 0.01){
-    playerFacing = dir.x < 0 ? -1 : 1;
+    if(engaging){
+      // target in range → aim the gun at it and turn to face it
+      aimAngle = Math.atan2(aimNearest.y-player.y, aimNearest.x-player.x);
+      if(Math.abs(Math.cos(aimAngle)) > 0.15) playerFacing = Math.cos(aimAngle) < 0 ? -1 : 1;
+    } else {
+      // nothing to shoot → face where you're walking, gun rests forward (no moonwalk)
+      if(Math.abs(dir.x) > 0.01) playerFacing = dir.x < 0 ? -1 : 1;
+      aimAngle = playerFacing < 0 ? Math.PI : 0;
+    }
+  } else {
+    if(FACE_MOVEMENT && Math.abs(dir.x) > 0.01) playerFacing = dir.x < 0 ? -1 : 1;
+    if(engaging) aimAngle = Math.atan2(aimNearest.y-player.y, aimNearest.x-player.x);
   }
 
   // bullet origin: muzzle of the floating gun in detached mode, body center otherwise
   if(HERO_MODE === 'detached'){
-    muzzleX = player.x + WPN_OX_W + Math.cos(aimAngle)*WPN_MUZ_W;
-    muzzleY = player.y + WPN_OY_W + Math.sin(aimAngle)*WPN_MUZ_W;
+    muzzleX = player.x + wpnOX_W() + Math.cos(aimAngle)*wpnMuz_W();
+    muzzleY = player.y + wpnOY_W() + Math.sin(aimAngle)*wpnMuz_W();
   } else {
     muzzleX = player.x; muzzleY = player.y;
   }
 
   // ----- weapon firing (behavior depends on current weapon) -----
-  const w = wpn();
   if(w.behavior === 'orbit'){
     updateOrbit(dt, w);
   } else {
     fireTimer -= dt;
-    if(fireTimer <= 0 && aimNearest && aimBest <= w.range*w.range){
+    if(fireTimer <= 0 && engaging){
       fireWeapon(w, aimNearest);
       fireTimer = 1 / (w.rate / fireMult); // fireMult<1 => faster
     }
@@ -473,7 +489,7 @@ function emoji(ch, sx, sy, size){
 
 function drawSprite(img, sx, sy, Z, flip){
   // fit the sprite's longest side to the hitbox, preserving aspect ratio
-  const target = PLAYER_R * 2 * Z * PLAYER_SPRITE_SCALE;
+  const target = bodyLenW() * Z;
   const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
   const s = target / Math.max(iw, ih);
   const w = iw * s, h = ih * s;
@@ -487,8 +503,8 @@ function drawSprite(img, sx, sy, Z, flip){
 
 function drawWeapon(sx, sy, Z){
   if(!weaponReady) return;
-  const mx = sx + WPN_OX_W*Z, my = sy + WPN_OY_W*Z;
-  const targetLen = WPN_LEN_W * Z;
+  const mx = sx + wpnOX_W()*Z, my = sy + wpnOY_W()*Z;
+  const targetLen = wpnLenW() * Z;
   const iw = weaponSprite.naturalWidth || 1, ih = weaponSprite.naturalHeight || 1;
   const s = targetLen / Math.max(iw, ih);
   const w = iw * s, h = ih * s;
@@ -690,6 +706,16 @@ bind('espeed','enemySpeed', x=>x.toFixed(0));
 bind('spawn','spawnInterval', x=>x.toFixed(2));
 bind('ehp','hpScale', x=>x.toFixed(2));
 bind('zoom','zoom', x=>x.toFixed(2));
+// size dials bind to the SZ object (live, instant)
+function bindObj(id, obj, key, fmt){
+  const s=document.getElementById('s_'+id), v=document.getElementById('v_'+id);
+  s.value = obj[key];
+  const upd = ()=>{ obj[key] = parseFloat(s.value); v.textContent = fmt(obj[key]); };
+  s.addEventListener('input', upd); upd();
+}
+bindObj('master', SZ, 'master', x=>x.toFixed(2));
+bindObj('hero',   SZ, 'hero',   x=>x.toFixed(2));
+bindObj('weapon', SZ, 'weapon', x=>x.toFixed(2));
 
 /* ---------- weapon & enemy switching ---------- */
 const wpnBtn = document.getElementById('wpnbtn');
