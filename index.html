@@ -125,7 +125,7 @@ const PLAYER_EMOJI = '🦊';   // fallback: shown until the sprite loads, or if 
    Relative path (no leading slash) so it also works when the game is served from a
    subpath, e.g. GitHub Pages project sites (username.github.io/repo/). */
 const PLAYER_SPRITE_SRC   = 'heros/tank.png';
-const PLAYER_SPRITE_SCALE = 1.4;    // visual size relative to the hitbox — tune by eye
+const PLAYER_SPRITE_SCALE = 2.5;    // ◀◀ MASTER SIZE — scales the body in BOTH modes (and the detached gun, see below)
 const PLAYER_SMOOTH       = true;   // true = smooth (detailed art); false = crisp (pixel art)
 const FACE_MOVEMENT       = false;  // FUSED MODE ONLY: flip sprite to face movement direction
 const playerSprite = new Image();
@@ -136,16 +136,23 @@ playerSprite.src = PLAYER_SPRITE_SRC;
 
 /* ---------- DETACHED MODE: gun-less body + free-floating, rotating weapon ----------
    Toggle live in the ⚙ panel. The body only flips L/R; the weapon is NOT held — it
-   floats and rotates a full 360° to the target, so no arm geometry ever breaks. */
+   floats and rotates a full 360° to the target, so no arm geometry ever breaks.
+   Everything below is RELATIVE to the body, so PLAYER_SPRITE_SCALE alone resizes the whole rig. */
 let HERO_MODE = 'fused';                 // 'fused' (tank.png) | 'detached' (tank2 + scatter)
 const HERO_BODY_SRC = 'heros/tank2.png'; // gun-less turtle, drawn facing RIGHT
 const WEAPON_SRC    = 'weapons/scatter.png'; // gun sprite, barrel pointing RIGHT
-// --- detached tuning (world units unless noted) ---
-const WEAPON_LEN         = 34;   // gun length on screen-ish (longest side), pre-zoom
+const WEAPON_SCALE       = 0.55; // gun length as a fraction of the body's longest side
 const WEAPON_PIVOT_X     = 0.30; // where the gun pivots, as a fraction from its LEFT/grip end
-const WEAPON_MOUNT_OX    = 0;    // mount point offset from body center, x
-const WEAPON_MOUNT_OY    = -4;   // mount point offset from body center, y (negative = up toward chest)
-const WEAPON_MUZZLE_DIST = 22;   // how far out the muzzle (bullet origin) sits along the aim line
+const WEAPON_MOUNT_OX    = 0.0;  // mount offset as a fraction of body half-size, x
+const WEAPON_MOUNT_OY    = -0.15;// mount offset as a fraction of body half-size, y (negative = up toward chest)
+const WEAPON_MUZZLE_DIST = 0.60; // muzzle (bullet origin) distance along the aim line, as a fraction of body half-size
+// derived world-unit sizes (recomputed from the master scale above) — don't edit these directly
+const BODY_LEN  = PLAYER_R * 2 * PLAYER_SPRITE_SCALE;
+const BODY_HALF = BODY_LEN / 2;
+const WPN_LEN_W = WEAPON_SCALE * BODY_LEN;
+const WPN_OX_W  = WEAPON_MOUNT_OX  * BODY_HALF;
+const WPN_OY_W  = WEAPON_MOUNT_OY  * BODY_HALF;
+const WPN_MUZ_W = WEAPON_MUZZLE_DIST * BODY_HALF;
 const heroBody = new Image(); let heroBodyReady = false;
 heroBody.onload  = () => { heroBodyReady = true; };
 heroBody.onerror = () => { console.warn('Hero body failed to load:', HERO_BODY_SRC); };
@@ -306,8 +313,8 @@ function update(dt){
 
   // bullet origin: muzzle of the floating gun in detached mode, body center otherwise
   if(HERO_MODE === 'detached'){
-    muzzleX = player.x + WEAPON_MOUNT_OX + Math.cos(aimAngle)*WEAPON_MUZZLE_DIST;
-    muzzleY = player.y + WEAPON_MOUNT_OY + Math.sin(aimAngle)*WEAPON_MUZZLE_DIST;
+    muzzleX = player.x + WPN_OX_W + Math.cos(aimAngle)*WPN_MUZ_W;
+    muzzleY = player.y + WPN_OY_W + Math.sin(aimAngle)*WPN_MUZ_W;
   } else {
     muzzleX = player.x; muzzleY = player.y;
   }
@@ -480,8 +487,8 @@ function drawSprite(img, sx, sy, Z, flip){
 
 function drawWeapon(sx, sy, Z){
   if(!weaponReady) return;
-  const mx = sx + WEAPON_MOUNT_OX*Z, my = sy + WEAPON_MOUNT_OY*Z;
-  const targetLen = WEAPON_LEN * Z;
+  const mx = sx + WPN_OX_W*Z, my = sy + WPN_OY_W*Z;
+  const targetLen = WPN_LEN_W * Z;
   const iw = weaponSprite.naturalWidth || 1, ih = weaponSprite.naturalHeight || 1;
   const s = targetLen / Math.max(iw, ih);
   const w = iw * s, h = ih * s;
